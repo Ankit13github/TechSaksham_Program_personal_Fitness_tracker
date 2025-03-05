@@ -27,8 +27,10 @@ A **Streamlit-powered web app** that predicts **calories burned** based on user 
 python -m venv venv
 source venv/bin/activate  # On macOS/Linux
 venv\\Scripts\\activate  # On Windows
+
 (2) Install Required Dependencies
 pip install -r requirements.txt
+
 (3) Run the Streamlit App
  streamlit run app.py
 
