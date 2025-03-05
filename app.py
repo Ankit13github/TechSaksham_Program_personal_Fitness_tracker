@@ -1,128 +1,113 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sn
+import seaborn as sns
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
-from sklearn import metrics
-import time
+import os
 
-import warnings
-warnings.filterwarnings('ignore')
+def set_page_style():
+    st.markdown("""
+        <style>
+             .stApp { background-color: #acacd7; }
+            .big-font { font-size:20px !important; font-weight: bold; }
+            .stButton>button { background-color: #4CAF50; color: white; border-radius: 10px; }
+            .stProgress>div>div { background-color: #4CAF50; }
+        </style>
+    """, unsafe_allow_html=True)
 
-st.write("## Personal Fitness Tracker")
-#st.image("", use_column_width=True)
-st.write("In this WebApp you will be able to observe your predicted calories burned in your body. Pass your parameters such as `Age`, `Gender`, `BMI`, etc., into this WebApp and then you will see the predicted value of kilocalories burned.")
+set_page_style()
 
-st.sidebar.header("User Input Parameters: ")
+# Page Title
+st.title("🏋️ Personal Fitness Tracker")
+st.write("Track your exercise metrics and predict calories burned based on various inputs!")
 
+# Sidebar Input Fields
+st.sidebar.header("📊 User Input Parameters")
 def user_input_features():
-    age = st.sidebar.slider("Age: ", 10, 100, 30)
-    bmi = st.sidebar.slider("BMI: ", 15, 40, 20)
-    duration = st.sidebar.slider("Duration (min): ", 0, 35, 15)
-    heart_rate = st.sidebar.slider("Heart Rate: ", 60, 130, 80)
-    body_temp = st.sidebar.slider("Body Temperature (C): ", 36, 42, 38)
-    gender_button = st.sidebar.radio("Gender: ", ("Male", "Female"))
-
+    age = st.sidebar.slider("Age", 10, 100, 30)
+    bmi = st.sidebar.slider("BMI", 15, 40, 20)
+    duration = st.sidebar.slider("Duration (min)", 0, 60, 15)
+    heart_rate = st.sidebar.slider("Heart Rate", 60, 180, 80)
+    body_temp = st.sidebar.slider("Body Temperature (°C)", 35, 42, 37)
+    gender_button = st.sidebar.radio("Gender", ("Male", "Female"))
     gender = 1 if gender_button == "Male" else 0
+    return pd.DataFrame({"Age": [age], "BMI": [bmi], "Duration": [duration], "Heart_Rate": [heart_rate], "Body_Temp": [body_temp], "Gender_male": [gender]})
 
-    # Use column names to match the training data
-    data_model = {
-        "Age": age,
-        "BMI": bmi,
-        "Duration": duration,
-        "Heart_Rate": heart_rate,
-        "Body_Temp": body_temp,
-        "Gender_male": gender  # Gender is encoded as 1 for male, 0 for female
-    }
+user_data = user_input_features()
+st.write("### 🏃 Your Input Parameters")
+st.dataframe(user_data, width=600)
 
-    features = pd.DataFrame(data_model, index=[0])
-    return features
+# Load and preprocess dataset
+base_path = os.path.dirname(os.path.abspath(__file__))
+calories_path = os.path.join(base_path, "calories.csv")
+exercise_path = os.path.join(base_path, "exercise.csv")
 
-df = user_input_features()
+calories = pd.read_csv(calories_path)
+exercise = pd.read_csv(exercise_path)
 
-st.write("---")
-st.header("Your Parameters: ")
-latest_iteration = st.empty()
-bar = st.progress(0)
-for i in range(100):
-    bar.progress(i + 1)
-    time.sleep(0.01)
-st.write(df)
+exercise_df = exercise.merge(calories, on="User_ID").drop(columns=["User_ID"])
+exercise_df["BMI"] = round(exercise_df["Weight"] / ((exercise_df["Height"] / 100) ** 2), 2)
+exercise_df = pd.get_dummies(exercise_df, drop_first=True)
 
-# Load and preprocess data
-calories = pd.read_csv("calories.csv")
-exercise = pd.read_csv("exercise.csv")
+# Split data
+X = exercise_df.drop(columns=["Calories"])
+y = exercise_df["Calories"]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1)
 
-exercise_df = exercise.merge(calories, on="User_ID")
-exercise_df.drop(columns="User_ID", inplace=True)
+# Model Selection
+st.sidebar.header("🧠 Choose Model")
+model_choice = st.sidebar.radio("Select a model", ["Random Forest", "Linear Regression"])
 
-exercise_train_data, exercise_test_data = train_test_split(exercise_df, test_size=0.2, random_state=1)
+if model_choice == "Random Forest":
+    model = RandomForestRegressor(n_estimators=500, max_features=3, max_depth=6)
+else:
+    model = LinearRegression()
 
-# Add BMI column to both training and test sets
-for data in [exercise_train_data, exercise_test_data]:
-    data["BMI"] = data["Weight"] / ((data["Height"] / 100) ** 2)
-    data["BMI"] = round(data["BMI"], 2)
+# Train Model
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
 
-# Prepare the training and testing sets
-exercise_train_data = exercise_train_data[["Gender", "Age", "BMI", "Duration", "Heart_Rate", "Body_Temp", "Calories"]]
-exercise_test_data = exercise_test_data[["Gender", "Age", "BMI", "Duration", "Heart_Rate", "Body_Temp", "Calories"]]
-exercise_train_data = pd.get_dummies(exercise_train_data, drop_first=True)
-exercise_test_data = pd.get_dummies(exercise_test_data, drop_first=True)
+# Model Accuracy Metrics
+mse = mean_squared_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+st.write(f"### 📈 Model Performance: {model_choice}")
+st.write(f"**Mean Squared Error:** {mse:.2f}")
+st.write(f"**R² Score:** {r2:.2f}")
 
-# Separate features and labels
-X_train = exercise_train_data.drop("Calories", axis=1)
-y_train = exercise_train_data["Calories"]
+# Make Prediction
+user_data = user_data.reindex(columns=X_train.columns, fill_value=0)
+prediction = model.predict(user_data)[0]
+st.success(f"🔥 Predicted Calories Burned: {round(prediction, 2)} kcal")
 
-X_test = exercise_test_data.drop("Calories", axis=1)
-y_test = exercise_test_data["Calories"]
+# Data Visualization
+st.write("### 📊 Data Insights")
+fig, ax = plt.subplots(figsize=(6, 4))
+sns.histplot(exercise_df["Calories"], bins=30, kde=True, color='blue', alpha=0.6, ax=ax)
+ax.set_title("Distribution of Calories Burned")
+st.pyplot(fig)
 
-# Train the model
-random_reg = RandomForestRegressor(n_estimators=1000, max_features=3, max_depth=6)
-random_reg.fit(X_train, y_train)
+# Correlation Heatmap
+st.write("### 🔥 Correlation Between Features")
+fig, ax = plt.subplots(figsize=(6, 4))
+sns.heatmap(exercise_df.corr(), annot=True, cmap="coolwarm", fmt=".2f", ax=ax)
+st.pyplot(fig)
 
-# Align prediction data columns with training data
-df = df.reindex(columns=X_train.columns, fill_value=0)
+# Additional Feature: Activity Recommendation
+st.write("### 🏆 Personalized Activity Recommendation")
+if prediction < 200:
+    st.info("🔵 Light exercise recommended: Walking, Stretching")
+elif 200 <= prediction < 400:
+    st.info("🟢 Moderate exercise recommended: Jogging, Yoga")
+else:
+    st.info("🔴 Intense exercise recommended: Running, HIIT, Weight Training")
 
-# Make prediction
-prediction = random_reg.predict(df)
-
-st.write("---")
-st.header("Prediction: ")
-latest_iteration = st.empty()
-bar = st.progress(0)
-for i in range(100):
-    bar.progress(i + 1)
-    time.sleep(0.01)
-
-st.write(f"{round(prediction[0], 2)} **kilocalories**")
-
-st.write("---")
-st.header("Similar Results: ")
-latest_iteration = st.empty()
-bar = st.progress(0)
-for i in range(100):
-    bar.progress(i + 1)
-    time.sleep(0.01)
-
-# Find similar results based on predicted calories
-calorie_range = [prediction[0] - 10, prediction[0] + 10]
-similar_data = exercise_df[(exercise_df["Calories"] >= calorie_range[0]) & (exercise_df["Calories"] <= calorie_range[1])]
-st.write(similar_data.sample(5))
-
-st.write("---")
-st.header("General Information: ")
-
-# Boolean logic for age, duration, etc., compared to the user's input
-boolean_age = (exercise_df["Age"] < df["Age"].values[0]).tolist()
-boolean_duration = (exercise_df["Duration"] < df["Duration"].values[0]).tolist()
-boolean_body_temp = (exercise_df["Body_Temp"] < df["Body_Temp"].values[0]).tolist()
-boolean_heart_rate = (exercise_df["Heart_Rate"] < df["Heart_Rate"].values[0]).tolist()
-
-st.write("You are older than", round(sum(boolean_age) / len(boolean_age), 2) * 100, "% of other people.")
-st.write("Your exercise duration is higher than", round(sum(boolean_duration) / len(boolean_duration), 2) * 100, "% of other people.")
-st.write("You have a higher heart rate than", round(sum(boolean_heart_rate) / len(boolean_heart_rate), 2) * 100, "% of other people during exercise.")
-st.write("You have a higher body temperature than", round(sum(boolean_body_temp) / len(boolean_body_temp), 2) * 100, "% of other people during exercise.")
+# General Information Comparison
+st.write("### 📋 General Information")
+st.write(f"You are older than {round((exercise_df['Age'] < user_data['Age'].values[0]).mean() * 100, 2)}% of other people.")
+st.write(f"Your exercise duration is higher than {round((exercise_df['Duration'] < user_data['Duration'].values[0]).mean() * 100, 2)}% of other people.")
+st.write(f"You have a higher heart rate than {round((exercise_df['Heart_Rate'] < user_data['Heart_Rate'].values[0]).mean() * 100, 2)}% of other people during exercise.")
+st.write(f"You have a higher body temperature than {round((exercise_df['Body_Temp'] < user_data['Body_Temp'].values[0]).mean() * 100, 2)}% of other people during exercise.")
